@@ -1,546 +1,685 @@
--- ============================================================================
--- DATABASE CREATION
--- ============================================================================
-CREATE DATABASE IF NOT EXISTS retail_dwh;
-USE retail_dwh;
+-- ========================================================================
+-- Project: Building a Data Warehouse for Retail Store on Azure Synapse
+-- Date: July 2026
+-- Prepared by: Project Team
+-- Objective: Transform raw data into an analysis-ready Data Warehouse for Power BI
+-- ========================================================================
 
--- ============================================================================
--- STAGING LAYER (Tables for raw CSV ingestion)
--- ============================================================================
--- We use VARCHAR for everything in staging to prevent load failures on dirty data.
+-- ========================================================================
+-- Phase 1: Basic Initialization (Configuration & Schemas)
+-- ========================================================================
 
-DROP TABLE IF EXISTS stg_DimCustomer;
-CREATE TABLE stg_DimCustomer (
-    Customer_Key VARCHAR(255),
-    Customer_Name VARCHAR(255),
-    Customer_Category VARCHAR(255)
+-- Create Schemas
+CREATE SCHEMA dw;
+GO
+CREATE SCHEMA stg;
+GO
+
+-- Database Master Key
+CREATE MASTER KEY ENCRYPTION BY PASSWORD = 'P@ssw0rd123456!';
+GO
+
+-- Database Scoped Credential for ADLS Gen2 (Managed Identity)
+CREATE DATABASE SCOPED CREDENTIAL ADLS_Credential
+WITH IDENTITY = 'Managed Identity';
+GO
+
+-- External Data Source
+CREATE EXTERNAL DATA SOURCE ADLS_Gold
+WITH (
+    LOCATION = 'abfss://retail@knoledgers.dfs.core.windows.net',
+    CREDENTIAL = ADLS_Credential
 );
+GO
 
-DROP TABLE IF EXISTS stg_DimDate;
-CREATE TABLE stg_DimDate (
-    Date_Key VARCHAR(255),
-    Full_Date VARCHAR(255),
-    Day VARCHAR(50),
-    Month VARCHAR(50),
-    Month_Name VARCHAR(50),
-    Quarter VARCHAR(50),
-    Year VARCHAR(50),
-    Season VARCHAR(50)
+-- External File Format
+CREATE EXTERNAL FILE FORMAT CSV_Format
+WITH (
+    FORMAT_TYPE = DELIMITEDTEXT,
+    FORMAT_OPTIONS (
+        FIELD_TERMINATOR = ',',
+        STRING_DELIMITER = '"'
+    )
 );
+GO
 
-DROP TABLE IF EXISTS stg_DimProduct;
-CREATE TABLE stg_DimProduct (
-    Product_Key VARCHAR(255),
-    Product_Name VARCHAR(500)
+-- ========================================================================
+-- Phase 2: External Tables (Staging Tables)
+-- ========================================================================
+
+-- External Customer Table
+CREATE EXTERNAL TABLE stg.ext_DimCustomer (
+    Customer_Key NVARCHAR(50),
+    Customer_Name NVARCHAR(255),
+    Customer_Category NVARCHAR(100)
+)
+WITH (
+    LOCATION = 'gold/DimCustomer/',
+    DATA_SOURCE = ADLS_Gold,
+    FILE_FORMAT = CSV_Format
 );
+GO
 
-DROP TABLE IF EXISTS stg_DimPromotion;
-CREATE TABLE stg_DimPromotion (
-    Promotion_Key VARCHAR(255),
-    Promotion VARCHAR(255),
-    Discount_Applied VARCHAR(50)
+-- External Date Table
+CREATE EXTERNAL TABLE stg.ext_DimDate (
+    Date_Key NVARCHAR(50),
+    Full_Date NVARCHAR(100),
+    Day NVARCHAR(50),
+    Month NVARCHAR(50),
+    Month_Name NVARCHAR(50),
+    Quarter NVARCHAR(50),
+    Year NVARCHAR(50),
+    Season NVARCHAR(50)
+)
+WITH (
+    LOCATION = 'gold/DimDate/',
+    DATA_SOURCE = ADLS_Gold,
+    FILE_FORMAT = CSV_Format
 );
+GO
 
-DROP TABLE IF EXISTS stg_DimStore;
-CREATE TABLE stg_DimStore (
-    Store_Key VARCHAR(255),
-    City VARCHAR(255),
-    Store_Type VARCHAR(255)
+-- External Product Table
+CREATE EXTERNAL TABLE stg.ext_DimProduct (
+    Product_Key NVARCHAR(50),
+    Product_Name NVARCHAR(255)
+)
+WITH (
+    LOCATION = 'gold/DimProduct/',
+    DATA_SOURCE = ADLS_Gold,
+    FILE_FORMAT = CSV_Format
 );
+GO
 
-DROP TABLE IF EXISTS stg_FactProductBridge;
-CREATE TABLE stg_FactProductBridge (
-    Transaction_ID VARCHAR(255),
-    Product_Key VARCHAR(255)
+-- External Promotion Table
+CREATE EXTERNAL TABLE stg.ext_DimPromotion (
+    Promotion_Key NVARCHAR(50),
+    Promotion NVARCHAR(255),
+    Discount_Applied NVARCHAR(50)
+)
+WITH (
+    LOCATION = 'gold/DimPromotion/',
+    DATA_SOURCE = ADLS_Gold,
+    FILE_FORMAT = CSV_Format
 );
+GO
 
-DROP TABLE IF EXISTS stg_FactSales;
-CREATE TABLE stg_FactSales (
-    Transaction_ID VARCHAR(255),
-    Date_Key VARCHAR(255),
-    Customer_Key VARCHAR(255),
-    Store_Key VARCHAR(255),
-    Promotion_Key VARCHAR(255),
-    Total_Items VARCHAR(255),
-    Total_Cost VARCHAR(255)
+-- External Store Table
+CREATE EXTERNAL TABLE stg.ext_DimStore (
+    Store_Key NVARCHAR(50),
+    City NVARCHAR(100),
+    Store_Type NVARCHAR(100)
+)
+WITH (
+    LOCATION = 'gold/DimStore/',
+    DATA_SOURCE = ADLS_Gold,
+    FILE_FORMAT = CSV_Format
 );
+GO
 
--- ============================================================================
--- CSV LOADING
--- ============================================================================
--- INSTRUCTIONS: Replace '/REPLACE_WITH_YOUR_PATH/' with your actual local or server path.
--- Ensure MySQL secure_file_priv allows loading from this directory.
-
-LOAD DATA INFILE '/REPLACE_WITH_YOUR_PATH/dim_customer.csv'
-INTO TABLE stg_DimCustomer
-FIELDS TERMINATED BY ',' ENCLOSED BY '"'
-LINES TERMINATED BY '\n'
-IGNORE 1 ROWS;
-
-LOAD DATA INFILE '/REPLACE_WITH_YOUR_PATH/dim_date.csv'
-INTO TABLE stg_DimDate
-FIELDS TERMINATED BY ',' ENCLOSED BY '"'
-LINES TERMINATED BY '\n'
-IGNORE 1 ROWS;
-
-LOAD DATA INFILE '/REPLACE_WITH_YOUR_PATH/dim_product.csv'
-INTO TABLE stg_DimProduct
-FIELDS TERMINATED BY ',' ENCLOSED BY '"'
-LINES TERMINATED BY '\n'
-IGNORE 1 ROWS;
-
-LOAD DATA INFILE '/REPLACE_WITH_YOUR_PATH/dim_promotion.csv'
-INTO TABLE stg_DimPromotion
-FIELDS TERMINATED BY ',' ENCLOSED BY '"'
-LINES TERMINATED BY '\n'
-IGNORE 1 ROWS;
-
-LOAD DATA INFILE '/REPLACE_WITH_YOUR_PATH/dim_store.csv'
-INTO TABLE stg_DimStore
-FIELDS TERMINATED BY ',' ENCLOSED BY '"'
-LINES TERMINATED BY '\n'
-IGNORE 1 ROWS;
-
-LOAD DATA INFILE '/REPLACE_WITH_YOUR_PATH/fact_product_bridge.csv'
-INTO TABLE stg_FactProductBridge
-FIELDS TERMINATED BY ',' ENCLOSED BY '"'
-LINES TERMINATED BY '\n'
-IGNORE 1 ROWS;
-
-LOAD DATA INFILE '/REPLACE_WITH_YOUR_PATH/fact_sales.csv'
-INTO TABLE stg_FactSales
-FIELDS TERMINATED BY ',' ENCLOSED BY '"'
-LINES TERMINATED BY '\n'
-IGNORE 1 ROWS;
-
--- ============================================================================
--- WAREHOUSE TABLES (Star Schema with Constraints & Indexes)
--- ============================================================================
-
-DROP TABLE IF EXISTS FactProductBridge;
-DROP TABLE IF EXISTS FactSales;
-DROP TABLE IF EXISTS DimCustomer;
-DROP TABLE IF EXISTS DimDate;
-DROP TABLE IF EXISTS DimProduct;
-DROP TABLE IF EXISTS DimPromotion;
-DROP TABLE IF EXISTS DimStore;
-
-CREATE TABLE DimCustomer (
-    Customer_Key INT PRIMARY KEY,
-    Customer_Name VARCHAR(255),
-    Customer_Category VARCHAR(100)
+-- External Sales Table (Fact)
+CREATE EXTERNAL TABLE stg.ext_FactSales (
+    Transaction_ID NVARCHAR(50),
+    Date_Key NVARCHAR(50),
+    Customer_Key NVARCHAR(50),
+    Store_Key NVARCHAR(50),
+    Promotion_Key NVARCHAR(50),
+    Total_Items NVARCHAR(50),
+    Total_Cost NVARCHAR(50)
+)
+WITH (
+    LOCATION = 'gold/FactSales/',
+    DATA_SOURCE = ADLS_Gold,
+    FILE_FORMAT = CSV_Format
 );
+GO
 
-CREATE TABLE DimDate (
-    Date_Key INT PRIMARY KEY,
+-- External Product Bridge Table (Bridge)
+CREATE EXTERNAL TABLE stg.ext_FactProductBridge (
+    Transaction_ID NVARCHAR(50),
+    Product_Key NVARCHAR(50)
+)
+WITH (
+    LOCATION = 'gold/FactProductBridge/',
+    DATA_SOURCE = ADLS_Gold,
+    FILE_FORMAT = CSV_Format
+);
+GO
+
+-- ========================================================================
+-- Phase 3: Final Tables (Data Warehouse Tables)
+-- ========================================================================
+
+-- Dimension Table: Customers
+CREATE TABLE dw.DimCustomer (
+    Customer_Key INT NOT NULL,
+    Customer_Name NVARCHAR(255),
+    Customer_Category NVARCHAR(100)
+)
+WITH (DISTRIBUTION = REPLICATE, CLUSTERED COLUMNSTORE INDEX);
+GO
+
+-- Dimension Table: Dates
+CREATE TABLE dw.DimDate (
+    Date_Key INT NOT NULL,
     Full_Date DATE,
     Day INT,
     Month INT,
-    Month_Name VARCHAR(50),
+    Month_Name NVARCHAR(50),
     Quarter INT,
     Year INT,
-    Season VARCHAR(50)
-);
-
-CREATE TABLE DimProduct (
-    Product_Key INT PRIMARY KEY,
-    Product_Name VARCHAR(255)
-);
-
-CREATE TABLE DimPromotion (
-    Promotion_Key INT PRIMARY KEY,
-    Promotion VARCHAR(255),
-    Discount_Applied BOOLEAN
-);
-
-CREATE TABLE DimStore (
-    Store_Key INT PRIMARY KEY,
-    City VARCHAR(100),
-    Store_Type VARCHAR(100)
-);
-
-CREATE TABLE FactSales (
-    Transaction_ID BIGINT PRIMARY KEY,
-    Date_Key INT,
-    Customer_Key INT,
-    Store_Key INT,
-    Promotion_Key INT,
-    Total_Items INT,
-    Total_Cost DECIMAL(10, 2),
-    FOREIGN KEY (Date_Key) REFERENCES DimDate(Date_Key),
-    FOREIGN KEY (Customer_Key) REFERENCES DimCustomer(Customer_Key),
-    FOREIGN KEY (Store_Key) REFERENCES DimStore(Store_Key),
-    FOREIGN KEY (Promotion_Key) REFERENCES DimPromotion(Promotion_Key)
-);
-
-CREATE TABLE FactProductBridge (
-    Transaction_ID BIGINT,
-    Product_Key INT,
-    PRIMARY KEY (Transaction_ID, Product_Key),
-    FOREIGN KEY (Transaction_ID) REFERENCES FactSales(Transaction_ID),
-    FOREIGN KEY (Product_Key) REFERENCES DimProduct(Product_Key)
-);
-
--- Analytics-friendly Optimization (Indexes)
-CREATE INDEX idx_fact_date ON FactSales(Date_Key);
-CREATE INDEX idx_fact_cust ON FactSales(Customer_Key);
-CREATE INDEX idx_fact_store ON FactSales(Store_Key);
-CREATE INDEX idx_fact_promo ON FactSales(Promotion_Key);
-CREATE INDEX idx_bridge_prod ON FactProductBridge(Product_Key);
-
--- ============================================================================
--- DATA CLEANING & LOADING (ETL from Staging to DWH)
--- ============================================================================
-
--- 1. Load DimCustomer
-INSERT IGNORE INTO DimCustomer (Customer_Key, Customer_Name, Customer_Category)
-SELECT 
-    CAST(TRIM(Customer_Key) AS UNSIGNED),
-    TRIM(Customer_Name),
-    TRIM(Customer_Category)
-FROM stg_DimCustomer
-WHERE Customer_Key IS NOT NULL AND TRIM(Customer_Key) != '';
-
--- 2. Load DimDate (Convert timestamp to Date Grain, group by Date to avoid dupes)
--- Using YYYYMMDD integer format for Date_Key
-INSERT IGNORE INTO DimDate (Date_Key, Full_Date, Day, Month, Month_Name, Quarter, Year, Season)
-SELECT 
-    CAST(DATE_FORMAT(CAST(LEFT(Full_Date, 10) AS DATE), '%Y%m%d') AS UNSIGNED) AS Date_Key,
-    CAST(LEFT(Full_Date, 10) AS DATE) AS Full_Date,
-    MAX(CAST(TRIM(Day) AS UNSIGNED)),
-    MAX(CAST(TRIM(Month) AS UNSIGNED)),
-    MAX(TRIM(Month_Name)),
-    MAX(CAST(TRIM(Quarter) AS UNSIGNED)),
-    MAX(CAST(TRIM(Year) AS UNSIGNED)),
-    MAX(TRIM(Season))
-FROM stg_DimDate
-WHERE Full_Date IS NOT NULL AND TRIM(Full_Date) != ''
-GROUP BY CAST(LEFT(Full_Date, 10) AS DATE);
-
--- 3. Load DimProduct (Clean malformed names, quotes, brackets)
-INSERT IGNORE INTO DimProduct (Product_Key, Product_Name)
-SELECT 
-    CAST(TRIM(Product_Key) AS UNSIGNED),
-    TRIM(
-        REPLACE(
-            REPLACE(
-                REPLACE(
-                    REPLACE(Product_Name, ']', ''), 
-                '[', ''), 
-            '''', ''),
-        '"', '')
-    ) AS Product_Name
-FROM stg_DimProduct
-WHERE Product_Key IS NOT NULL AND TRIM(Product_Key) != '';
-
--- 4. Load DimPromotion (Handle NULLs and Boolean conversions)
-INSERT IGNORE INTO DimPromotion (Promotion_Key, Promotion, Discount_Applied)
-SELECT 
-    CAST(TRIM(Promotion_Key) AS UNSIGNED),
-    COALESCE(NULLIF(TRIM(Promotion), ''), 'No Promotion') AS Promotion,
-    CASE 
-        WHEN UPPER(TRIM(Discount_Applied)) = 'TRUE' THEN TRUE
-        WHEN UPPER(TRIM(Discount_Applied)) = 'FALSE' THEN FALSE
-        ELSE FALSE 
-    END AS Discount_Applied
-FROM stg_DimPromotion
-WHERE Promotion_Key IS NOT NULL AND TRIM(Promotion_Key) != '';
-
--- If a record is completely missing a promo, ensure a default "No Promotion" key exists
-INSERT IGNORE INTO DimPromotion (Promotion_Key, Promotion, Discount_Applied)
-VALUES (-1, 'No Promotion', FALSE);
-
--- 5. Load DimStore
-INSERT IGNORE INTO DimStore (Store_Key, City, Store_Type)
-SELECT 
-    CAST(TRIM(Store_Key) AS UNSIGNED),
-    TRIM(City),
-    TRIM(Store_Type)
-FROM stg_DimStore
-WHERE Store_Key IS NOT NULL AND TRIM(Store_Key) != '';
-
--- 6. Load FactSales
--- Maps the staging date key (timestamp-based) to the new Date Grain YYYYMMDD key.
-INSERT IGNORE INTO FactSales (Transaction_ID, Date_Key, Customer_Key, Store_Key, Promotion_Key, Total_Items, Total_Cost)
-SELECT 
-    CAST(TRIM(fs.Transaction_ID) AS UNSIGNED),
-    CAST(DATE_FORMAT(CAST(LEFT(d.Full_Date, 10) AS DATE), '%Y%m%d') AS UNSIGNED) AS Date_Key,
-    CAST(TRIM(fs.Customer_Key) AS UNSIGNED),
-    CAST(TRIM(fs.Store_Key) AS UNSIGNED),
-    COALESCE(CAST(NULLIF(TRIM(fs.Promotion_Key), '') AS UNSIGNED), -1) AS Promotion_Key,
-    CAST(TRIM(fs.Total_Items) AS UNSIGNED),
-    CAST(TRIM(fs.Total_Cost) AS DECIMAL(10,2))
-FROM stg_FactSales fs
-LEFT JOIN stg_DimDate d ON fs.Date_Key = d.Date_Key
-WHERE fs.Transaction_ID IS NOT NULL AND TRIM(fs.Transaction_ID) != '';
-
--- 7. Load FactProductBridge
-INSERT IGNORE INTO FactProductBridge (Transaction_ID, Product_Key)
-SELECT 
-    CAST(TRIM(Transaction_ID) AS UNSIGNED),
-    CAST(TRIM(Product_Key) AS UNSIGNED)
-FROM stg_FactProductBridge
-WHERE Transaction_ID IS NOT NULL AND TRIM(Transaction_ID) != ''
-  AND Product_Key IS NOT NULL AND TRIM(Product_Key) != '';
-
--- ============================================================================
--- DATA QUALITY ANALYSIS QUERIES
--- ============================================================================
-
--- 1. Missing values by table (Count comparisons between staging and final)
-SELECT 'DimCustomer' AS Table_Name, (SELECT COUNT(*) FROM stg_DimCustomer) - (SELECT COUNT(*) FROM DimCustomer) AS Dropped_Rows
-UNION ALL SELECT 'DimProduct', (SELECT COUNT(*) FROM stg_DimProduct) - (SELECT COUNT(*) FROM DimProduct)
-UNION ALL SELECT 'FactSales', (SELECT COUNT(*) FROM stg_FactSales) - (SELECT COUNT(*) FROM FactSales);
-
--- 2. Missing values by column / Null percentages in FactSales
-SELECT 
-    SUM(CASE WHEN Customer_Key IS NULL THEN 1 ELSE 0 END) / COUNT(*) * 100 AS Null_Pct_Customer,
-    SUM(CASE WHEN Store_Key IS NULL THEN 1 ELSE 0 END) / COUNT(*) * 100 AS Null_Pct_Store,
-    SUM(CASE WHEN Promotion_Key = -1 THEN 1 ELSE 0 END) / COUNT(*) * 100 AS Pct_No_Promotion
-FROM FactSales;
-
--- 3. Duplicate key detection in Dimension Tables (Should be 0 due to PKs, but checks source)
-SELECT Customer_Key, COUNT(*) as Occurrences 
-FROM stg_DimCustomer GROUP BY Customer_Key HAVING COUNT(*) > 1;
-
--- 4. Foreign key validation / Invalid references (Orphaned Facts)
-SELECT COUNT(*) AS Orphaned_Sales_Customer FROM FactSales f LEFT JOIN DimCustomer c ON f.Customer_Key = c.Customer_Key WHERE c.Customer_Key IS NULL;
-SELECT COUNT(*) AS Orphaned_Sales_Store FROM FactSales f LEFT JOIN DimStore s ON f.Store_Key = s.Store_Key WHERE s.Store_Key IS NULL;
-
--- 5. Revenue outlier detection (Transactions > 3 standard deviations from mean)
-SELECT Transaction_ID, Total_Cost 
-FROM FactSales 
-WHERE Total_Cost > (SELECT AVG(Total_Cost) + (3 * STDDEV(Total_Cost)) FROM FactSales);
-
--- 6. Product count distribution (Check bridge table anomaly)
-SELECT Transaction_ID, COUNT(Product_Key) AS Product_Count 
-FROM FactProductBridge GROUP BY Transaction_ID ORDER BY Product_Count DESC LIMIT 10;
-
--- 7. Customer category distribution
-SELECT Customer_Category, COUNT(*) AS Customer_Count FROM DimCustomer GROUP BY Customer_Category;
-
--- 8. Store distribution
-SELECT City, Store_Type, COUNT(*) AS Store_Count FROM DimStore GROUP BY City, Store_Type;
-
--- 9. Promotion quality checks (Distribution of discounts)
-SELECT Promotion, Discount_Applied, COUNT(*) AS Times_Applied 
-FROM DimPromotion GROUP BY Promotion, Discount_Applied;
-
--- 10. Data completeness check (Date ranges)
-SELECT MIN(Full_Date) AS Earliest_Date, MAX(Full_Date) AS Latest_Date, COUNT(DISTINCT Date_Key) AS Total_Days FROM DimDate;
-
--- ============================================================================
--- BUSINESS ANALYTICS (EDA) - 25 QUERIES
--- ============================================================================
-
--- Q1: Total Revenue
-SELECT SUM(Total_Cost) AS Total_Revenue FROM FactSales;
-
--- Q2: Total Transactions
-SELECT COUNT(DISTINCT Transaction_ID) AS Total_Transactions FROM FactSales;
-
--- Q3: Average Order Value
-SELECT AVG(Total_Cost) AS Average_Order_Value FROM FactSales;
-
--- Q4: Average Basket Size (Items per transaction)
-SELECT AVG(Total_Items) AS Average_Basket_Size FROM FactSales;
-
--- Q5: Revenue by Year
-SELECT d.Year, SUM(f.Total_Cost) AS Revenue 
-FROM FactSales f JOIN DimDate d ON f.Date_Key = d.Date_Key 
-GROUP BY d.Year ORDER BY d.Year;
-
--- Q6: Revenue by Quarter
-SELECT d.Year, d.Quarter, SUM(f.Total_Cost) AS Revenue 
-FROM FactSales f JOIN DimDate d ON f.Date_Key = d.Date_Key 
-GROUP BY d.Year, d.Quarter ORDER BY d.Year, d.Quarter;
-
--- Q7: Revenue by Month
-SELECT d.Year, d.Month_Name, SUM(f.Total_Cost) AS Revenue 
-FROM FactSales f JOIN DimDate d ON f.Date_Key = d.Date_Key 
-GROUP BY d.Year, d.Month, d.Month_Name ORDER BY d.Year, d.Month;
-
--- Q8: Revenue by Season
-SELECT d.Season, SUM(f.Total_Cost) AS Revenue 
-FROM FactSales f JOIN DimDate d ON f.Date_Key = d.Date_Key 
-GROUP BY d.Season ORDER BY Revenue DESC;
-
--- Q9: Revenue by Customer Category
-SELECT c.Customer_Category, SUM(f.Total_Cost) AS Revenue 
-FROM FactSales f JOIN DimCustomer c ON f.Customer_Key = c.Customer_Key 
-GROUP BY c.Customer_Category ORDER BY Revenue DESC;
-
--- Q10: Top 10 Customers by Revenue
-SELECT c.Customer_Name, SUM(f.Total_Cost) AS Total_Spent 
-FROM FactSales f JOIN DimCustomer c ON f.Customer_Key = c.Customer_Key 
-GROUP BY c.Customer_Name ORDER BY Total_Spent DESC LIMIT 10;
-
--- Q11: Customer Segments (RFM approximation based on spending)
-SELECT c.Customer_Name, SUM(f.Total_Cost) AS Total_Spent,
-    CASE 
-        WHEN SUM(f.Total_Cost) > 500 THEN 'High Value'
-        WHEN SUM(f.Total_Cost) BETWEEN 100 AND 500 THEN 'Medium Value'
-        ELSE 'Low Value' 
-    END AS Customer_Segment
-FROM FactSales f JOIN DimCustomer c ON f.Customer_Key = c.Customer_Key 
-GROUP BY c.Customer_Name;
-
--- Q12: Customer Category Contribution %
-SELECT c.Customer_Category, SUM(f.Total_Cost) AS Revenue,
-       (SUM(f.Total_Cost) / (SELECT SUM(Total_Cost) FROM FactSales)) * 100 AS Contribution_Pct
-FROM FactSales f JOIN DimCustomer c ON f.Customer_Key = c.Customer_Key 
-GROUP BY c.Customer_Category;
-
--- Q13: Revenue by City
-SELECT s.City, SUM(f.Total_Cost) AS Revenue 
-FROM FactSales f JOIN DimStore s ON f.Store_Key = s.Store_Key 
-GROUP BY s.City ORDER BY Revenue DESC;
-
--- Q14: Revenue by Store Type
-SELECT s.Store_Type, SUM(f.Total_Cost) AS Revenue 
-FROM FactSales f JOIN DimStore s ON f.Store_Key = s.Store_Key 
-GROUP BY s.Store_Type ORDER BY Revenue DESC;
-
--- Q15: Best Performing Cities
-SELECT s.City, COUNT(f.Transaction_ID) AS Total_Transactions, SUM(f.Total_Cost) AS Revenue 
-FROM FactSales f JOIN DimStore s ON f.Store_Key = s.Store_Key 
-GROUP BY s.City ORDER BY Revenue DESC LIMIT 5;
-
--- Q16: Best Performing Store Types
-SELECT s.Store_Type, AVG(f.Total_Cost) AS Avg_Transaction_Value 
-FROM FactSales f JOIN DimStore s ON f.Store_Key = s.Store_Key 
-GROUP BY s.Store_Type ORDER BY Avg_Transaction_Value DESC LIMIT 5;
-
--- Q17: Revenue by Promotion
-SELECT p.Promotion, SUM(f.Total_Cost) AS Revenue 
-FROM FactSales f JOIN DimPromotion p ON f.Promotion_Key = p.Promotion_Key 
-GROUP BY p.Promotion ORDER BY Revenue DESC;
-
--- Q18: Promotion Impact (Transactions with vs without Promo)
-SELECT 
-    CASE WHEN p.Promotion = 'No Promotion' THEN 'Without Promo' ELSE 'With Promo' END AS Promo_Status,
-    COUNT(f.Transaction_ID) AS Transactions, 
-    SUM(f.Total_Cost) AS Total_Revenue
-FROM FactSales f JOIN DimPromotion p ON f.Promotion_Key = p.Promotion_Key 
-GROUP BY Promo_Status;
-
--- Q19: Discount Effectiveness (Does TRUE discount increase Avg Basket Size?)
-SELECT p.Discount_Applied, AVG(f.Total_Items) AS Avg_Basket_Size, AVG(f.Total_Cost) AS Avg_Order_Value
-FROM FactSales f JOIN DimPromotion p ON f.Promotion_Key = p.Promotion_Key 
-GROUP BY p.Discount_Applied;
-
--- Q20: Top 10 Products by Volume
-SELECT p.Product_Name, COUNT(b.Transaction_ID) AS Times_Purchased 
-FROM FactProductBridge b JOIN DimProduct p ON b.Product_Key = p.Product_Key 
-GROUP BY p.Product_Name ORDER BY Times_Purchased DESC LIMIT 10;
-
--- Q21: Lowest 10 Products by Volume
-SELECT p.Product_Name, COUNT(b.Transaction_ID) AS Times_Purchased 
-FROM FactProductBridge b JOIN DimProduct p ON b.Product_Key = p.Product_Key 
-GROUP BY p.Product_Name ORDER BY Times_Purchased ASC LIMIT 10;
-
--- Q22: Product Popularity Ranking (Window Function)
-SELECT p.Product_Name, COUNT(b.Transaction_ID) AS Total_Purchases,
-       DENSE_RANK() OVER (ORDER BY COUNT(b.Transaction_ID) DESC) AS Popularity_Rank
-FROM FactProductBridge b JOIN DimProduct p ON b.Product_Key = p.Product_Key 
-GROUP BY p.Product_Name;
-
--- Q23: Seasonal Product Trends
-SELECT d.Season, p.Product_Name, COUNT(b.Transaction_ID) AS Purchases 
-FROM FactProductBridge b 
-JOIN FactSales f ON b.Transaction_ID = f.Transaction_ID
-JOIN DimDate d ON f.Date_Key = d.Date_Key
-JOIN DimProduct p ON b.Product_Key = p.Product_Key
-GROUP BY d.Season, p.Product_Name 
-ORDER BY d.Season, Purchases DESC;
-
--- Q24: Revenue Growth (Month-over-Month via LAG)
-WITH MonthlyRev AS (
-    SELECT d.Year, d.Month, SUM(f.Total_Cost) AS Revenue
-    FROM FactSales f JOIN DimDate d ON f.Date_Key = d.Date_Key
-    GROUP BY d.Year, d.Month
+    Season NVARCHAR(50)
 )
-SELECT Year, Month, Revenue,
-       LAG(Revenue) OVER(ORDER BY Year, Month) AS Prev_Month_Rev,
-       ((Revenue - LAG(Revenue) OVER(ORDER BY Year, Month)) / LAG(Revenue) OVER(ORDER BY Year, Month)) * 100 AS MoM_Growth_Pct
-FROM MonthlyRev;
+WITH (DISTRIBUTION = REPLICATE, CLUSTERED COLUMNSTORE INDEX);
+GO
 
--- Q25: Cross-Selling / Product Affinity (Products bought together)
-SELECT p1.Product_Name AS Product_A, p2.Product_Name AS Product_B, COUNT(*) AS Co_occurrence_Count
-FROM FactProductBridge b1
-JOIN FactProductBridge b2 ON b1.Transaction_ID = b2.Transaction_ID AND b1.Product_Key < b2.Product_Key
-JOIN DimProduct p1 ON b1.Product_Key = p1.Product_Key
-JOIN DimProduct p2 ON b2.Product_Key = p2.Product_Key
-GROUP BY p1.Product_Name, p2.Product_Name
-ORDER BY Co_occurrence_Count DESC LIMIT 10;
+-- Dimension Table: Products
+CREATE TABLE dw.DimProduct (
+    Product_Key INT NOT NULL,
+    Product_Name NVARCHAR(255)
+)
+WITH (DISTRIBUTION = REPLICATE, CLUSTERED COLUMNSTORE INDEX);
+GO
 
--- ============================================================================
--- POWER BI VIEWS
--- ============================================================================
+-- Dimension Table: Promotions
+CREATE TABLE dw.DimPromotion (
+    Promotion_Key INT NOT NULL,
+    Promotion NVARCHAR(255),
+    Discount_Applied BIT
+)
+WITH (DISTRIBUTION = REPLICATE, CLUSTERED COLUMNSTORE INDEX);
+GO
 
--- View: Sales Overview
-CREATE OR REPLACE VIEW vw_SalesOverview AS
+-- Dimension Table: Stores
+CREATE TABLE dw.DimStore (
+    Store_Key INT NOT NULL,
+    City NVARCHAR(100),
+    Store_Type NVARCHAR(100)
+)
+WITH (DISTRIBUTION = REPLICATE, CLUSTERED COLUMNSTORE INDEX);
+GO
+
+-- Fact Table: Sales
+CREATE TABLE dw.FactSales (
+    Transaction_ID BIGINT NOT NULL,
+    Date_Key INT NOT NULL,
+    Customer_Key INT NOT NULL,
+    Store_Key INT NOT NULL,
+    Promotion_Key INT NULL,
+    Total_Items INT,
+    Total_Cost FLOAT
+)
+WITH (DISTRIBUTION = HASH(Transaction_ID), CLUSTERED COLUMNSTORE INDEX);
+GO
+
+-- Fact Table: Product Bridge
+CREATE TABLE dw.FactProductBridge (
+    Transaction_ID BIGINT NOT NULL,
+    Product_Key INT NOT NULL
+)
+WITH (DISTRIBUTION = HASH(Transaction_ID), CLUSTERED COLUMNSTORE INDEX);
+GO
+
+-- ========================================================================
+-- Phase 4: Data Loading (ETL - INSERT INTO)
+-- ========================================================================
+
+-- Load Customer Data
+INSERT INTO dw.DimCustomer
 SELECT 
-    f.Transaction_ID, d.Full_Date, d.Year, d.Month_Name,
-    c.Customer_Name, c.Customer_Category,
-    s.City, s.Store_Type,
-    p.Promotion, p.Discount_Applied,
-    f.Total_Items, f.Total_Cost
-FROM FactSales f
-JOIN DimDate d ON f.Date_Key = d.Date_Key
-JOIN DimCustomer c ON f.Customer_Key = c.Customer_Key
-JOIN DimStore s ON f.Store_Key = s.Store_Key
-JOIN DimPromotion p ON f.Promotion_Key = p.Promotion_Key;
+    TRY_CAST(Customer_Key AS INT),
+    Customer_Name,
+    Customer_Category
+FROM stg.ext_DimCustomer
+WHERE TRY_CAST(Customer_Key AS INT) IS NOT NULL
+  AND Customer_Name != 'Customer_Name';
+GO
 
--- View: Customer Analysis
-CREATE OR REPLACE VIEW vw_CustomerAnalysis AS
+-- Load Date Data
+INSERT INTO dw.DimDate
 SELECT 
-    c.Customer_Key, c.Customer_Name, c.Customer_Category,
-    COUNT(DISTINCT f.Transaction_ID) AS Total_Orders,
-    SUM(f.Total_Cost) AS Total_Spent,
+    TRY_CAST(Date_Key AS INT),
+    TRY_CAST(LEFT(Full_Date, 10) AS DATE),
+    TRY_CAST(Day AS INT),
+    TRY_CAST(Month AS INT),
+    Month_Name,
+    TRY_CAST(Quarter AS INT),
+    TRY_CAST(Year AS INT),
+    Season
+FROM stg.ext_DimDate
+WHERE TRY_CAST(Date_Key AS INT) IS NOT NULL
+  AND Date_Key != 'Date_Key';
+GO
+
+-- Load Product Data
+INSERT INTO dw.DimProduct
+SELECT 
+    TRY_CAST(Product_Key AS INT),
+    REPLACE(REPLACE(Product_Name, '[', ''), ']', '')
+FROM stg.ext_DimProduct
+WHERE TRY_CAST(Product_Key AS INT) IS NOT NULL
+  AND Product_Name != 'Product_Name';
+GO
+
+-- Load Promotion Data
+INSERT INTO dw.DimPromotion
+SELECT 
+    TRY_CAST(Promotion_Key AS INT),
+    CASE WHEN Promotion = '(NULL)' OR Promotion IS NULL OR Promotion = 'Promotion' THEN 'No Promotion' ELSE Promotion END,
+    CASE 
+        WHEN LOWER(Discount_Applied) IN ('true', '1') THEN 1
+        WHEN LOWER(Discount_Applied) IN ('false', '0') THEN 0
+        ELSE NULL
+    END
+FROM stg.ext_DimPromotion
+WHERE TRY_CAST(Promotion_Key AS INT) IS NOT NULL
+  AND Promotion_Key != 'Promotion_Key';
+GO
+
+-- Load Store Data
+INSERT INTO dw.DimStore
+SELECT 
+    TRY_CAST(Store_Key AS INT),
+    City,
+    Store_Type
+FROM stg.ext_DimStore
+WHERE TRY_CAST(Store_Key AS INT) IS NOT NULL
+  AND Store_Key != 'Store_Key';
+GO
+
+-- Load Sales Data
+INSERT INTO dw.FactSales
+SELECT 
+    TRY_CAST(Transaction_ID AS BIGINT),
+    TRY_CAST(Date_Key AS INT),
+    TRY_CAST(Customer_Key AS INT),
+    TRY_CAST(Store_Key AS INT),
+    CASE WHEN Promotion_Key = '(NULL)' OR Promotion_Key IS NULL OR Promotion_Key = 'Promotion_Key' THEN NULL ELSE TRY_CAST(Promotion_Key AS INT) END,
+    TRY_CAST(Total_Items AS INT),
+    TRY_CAST(Total_Cost AS FLOAT)
+FROM stg.ext_FactSales
+WHERE TRY_CAST(Transaction_ID AS BIGINT) IS NOT NULL
+  AND Transaction_ID != 'Transaction_ID';
+GO
+
+-- Load Product Bridge Data
+INSERT INTO dw.FactProductBridge
+SELECT 
+    TRY_CAST(Transaction_ID AS BIGINT),
+    TRY_CAST(Product_Key AS INT)
+FROM stg.ext_FactProductBridge
+WHERE TRY_CAST(Transaction_ID AS BIGINT) IS NOT NULL
+  AND Transaction_ID != 'Transaction_ID';
+GO
+
+-- ========================================================================
+-- Phase 5: Data Validation
+-- ========================================================================
+
+-- 1. Row counts for each table
+SELECT 'DimCustomer' AS TableName, COUNT(*) AS RowsCount FROM dw.DimCustomer
+UNION ALL SELECT 'DimDate', COUNT(*) FROM dw.DimDate
+UNION ALL SELECT 'DimProduct', COUNT(*) FROM dw.DimProduct
+UNION ALL SELECT 'DimPromotion', COUNT(*) FROM dw.DimPromotion
+UNION ALL SELECT 'DimStore', COUNT(*) FROM dw.DimStore
+UNION ALL SELECT 'FactSales', COUNT(*) FROM dw.FactSales
+UNION ALL SELECT 'FactProductBridge', COUNT(*) FROM dw.FactProductBridge;
+GO
+
+-- 2. Check relationship integrity (Non-null foreign keys)
+SELECT 
+    (SELECT COUNT(*) FROM dw.FactSales WHERE Customer_Key IS NULL) AS Null_Customer_Keys,
+    (SELECT COUNT(*) FROM dw.FactSales WHERE Store_Key IS NULL) AS Null_Store_Keys,
+    (SELECT COUNT(*) FROM dw.FactSales WHERE Date_Key IS NULL) AS Null_Date_Keys;
+GO
+
+-- 3. Value ranges in Sales table
+SELECT 
+    MIN(Total_Cost) AS Min_Cost,
+    MAX(Total_Cost) AS Max_Cost,
+    AVG(Total_Cost) AS Avg_Cost,
+    MIN(Total_Items) AS Min_Items,
+    MAX(Total_Items) AS Max_Items,
+    AVG(Total_Items) AS Avg_Items
+FROM dw.FactSales;
+GO
+
+-- 4. Customer distribution by category
+SELECT Customer_Category, COUNT(*) AS Count
+FROM dw.DimCustomer
+GROUP BY Customer_Category
+ORDER BY Count DESC;
+GO
+
+-- 5. Check for primary key duplicates
+SELECT 'DimCustomer' AS TableName, COUNT(*) - COUNT(DISTINCT Customer_Key) AS Duplicates FROM dw.DimCustomer
+UNION ALL SELECT 'DimDate', COUNT(*) - COUNT(DISTINCT Date_Key) FROM dw.DimDate
+UNION ALL SELECT 'DimProduct', COUNT(*) - COUNT(DISTINCT Product_Key) FROM dw.DimProduct
+UNION ALL SELECT 'DimPromotion', COUNT(*) - COUNT(DISTINCT Promotion_Key) FROM dw.DimPromotion
+UNION ALL SELECT 'DimStore', COUNT(*) - COUNT(DISTINCT Store_Key) FROM dw.DimStore;
+GO
+
+-- ========================================================================
+-- Phase 6: Core Analytics
+-- ========================================================================
+
+-- Total Revenue
+SELECT 'Total Revenue' AS Metric, FORMAT(SUM(Total_Cost), 'N0') AS Value
+FROM dw.FactSales;
+GO
+
+-- Total Transactions
+SELECT 'Total Transactions' AS Metric, FORMAT(COUNT(DISTINCT Transaction_ID), 'N0') AS Value
+FROM dw.FactSales;
+GO
+
+-- Average Order Value (AOV)
+SELECT 'Average Order Value' AS Metric, FORMAT(AVG(Total_Cost), 'N2') AS Value
+FROM dw.FactSales;
+GO
+
+-- Average Basket Size
+SELECT 'Avg Basket Size' AS Metric, FORMAT(AVG(CAST(Total_Items AS FLOAT)), 'N2') AS Value
+FROM dw.FactSales;
+GO
+
+-- Revenue by Year
+SELECT d.Year, FORMAT(SUM(f.Total_Cost), 'N0') AS Revenue
+FROM dw.FactSales f
+JOIN dw.DimDate d ON f.Date_Key = d.Date_Key
+GROUP BY d.Year
+ORDER BY d.Year;
+GO
+
+-- Revenue by Season
+SELECT d.Season, FORMAT(SUM(f.Total_Cost), 'N0') AS Revenue
+FROM dw.FactSales f
+JOIN dw.DimDate d ON f.Date_Key = d.Date_Key
+GROUP BY d.Season
+ORDER BY Revenue DESC;
+GO
+
+-- Revenue by Customer Category
+SELECT c.Customer_Category, FORMAT(SUM(f.Total_Cost), 'N0') AS Revenue
+FROM dw.FactSales f
+JOIN dw.DimCustomer c ON f.Customer_Key = c.Customer_Key
+GROUP BY c.Customer_Category
+ORDER BY Revenue DESC;
+GO
+
+-- Revenue by City
+SELECT s.City, FORMAT(SUM(f.Total_Cost), 'N0') AS Revenue
+FROM dw.FactSales f
+JOIN dw.DimStore s ON f.Store_Key = s.Store_Key
+GROUP BY s.City
+ORDER BY Revenue DESC;
+GO
+
+-- Revenue by Store Type
+SELECT s.Store_Type, FORMAT(SUM(f.Total_Cost), 'N0') AS Revenue
+FROM dw.FactSales f
+JOIN dw.DimStore s ON f.Store_Key = s.Store_Key
+GROUP BY s.Store_Type
+ORDER BY Revenue DESC;
+GO
+
+-- Top 10 Best Selling Products
+SELECT TOP 10 p.Product_Name, COUNT(pb.Transaction_ID) AS Times_Sold
+FROM dw.FactProductBridge pb
+JOIN dw.DimProduct p ON pb.Product_Key = p.Product_Key
+GROUP BY p.Product_Name
+ORDER BY Times_Sold DESC;
+GO
+
+-- ========================================================================
+-- Phase 7: Advanced Analytics
+-- ========================================================================
+
+-- 1. Customer Retention Analysis
+WITH CustomerOrders AS (
+    SELECT Customer_Key, 
+           COUNT(DISTINCT Transaction_ID) AS Order_Count,
+           MIN(Date_Key) AS First_Order_Date,
+           MAX(Date_Key) AS Last_Order_Date
+    FROM dw.FactSales
+    GROUP BY Customer_Key
+)
+SELECT 
+    CASE 
+        WHEN Order_Count = 1 THEN '1 (New)'
+        WHEN Order_Count BETWEEN 2 AND 3 THEN '2-3 (Occasional)'
+        WHEN Order_Count BETWEEN 4 AND 6 THEN '4-6 (Regular)'
+        WHEN Order_Count BETWEEN 7 AND 10 THEN '7-10 (Loyal)'
+        ELSE '10+ (VIP)'
+    END AS Customer_Segment,
+    COUNT(Customer_Key) AS Num_Customers,
+    FORMAT(COUNT(Customer_Key) * 100.0 / SUM(COUNT(Customer_Key)) OVER (), 'N2') AS Pct_Of_Total
+FROM CustomerOrders
+GROUP BY 
+    CASE 
+        WHEN Order_Count = 1 THEN '1 (New)'
+        WHEN Order_Count BETWEEN 2 AND 3 THEN '2-3 (Occasional)'
+        WHEN Order_Count BETWEEN 4 AND 6 THEN '4-6 (Regular)'
+        WHEN Order_Count BETWEEN 7 AND 10 THEN '7-10 (Loyal)'
+        ELSE '10+ (VIP)'
+    END
+ORDER BY MIN(Order_Count);
+GO
+
+-- 2. Average Days Between Orders (for Repeat Customers)
+WITH CustomerOrders AS (
+    SELECT 
+        f.Customer_Key,
+        f.Transaction_ID,
+        d.Full_Date AS Order_Date,
+        LAG(d.Full_Date, 1) OVER (PARTITION BY f.Customer_Key ORDER BY d.Full_Date) AS Prev_Order_Date
+    FROM dw.FactSales f
+    JOIN dw.DimDate d ON f.Date_Key = d.Date_Key
+),
+DaysBetween AS (
+    SELECT 
+        Customer_Key,
+        DATEDIFF(DAY, Prev_Order_Date, Order_Date) AS Days_Between_Orders
+    FROM CustomerOrders
+    WHERE Prev_Order_Date IS NOT NULL
+)
+SELECT 
+    COUNT(DISTINCT Customer_Key) AS Customers_With_Multiple_Orders,
+    AVG(CAST(Days_Between_Orders AS FLOAT)) AS Avg_Days_Between_Orders
+FROM DaysBetween;
+GO
+
+-- 3. Average Customer Lifespan (From First to Last Order)
+WITH CustomerOrders AS (
+    SELECT 
+        f.Customer_Key, 
+        MIN(d.Full_Date) AS First_Order_Date,
+        MAX(d.Full_Date) AS Last_Order_Date
+    FROM dw.FactSales f
+    JOIN dw.DimDate d ON f.Date_Key = d.Date_Key
+    GROUP BY f.Customer_Key
+)
+SELECT 
+    'Avg Customer Lifespan (Days)' AS Metric,
+    FORMAT(AVG(DATEDIFF(DAY, First_Order_Date, Last_Order_Date)), 'N2') AS Value
+FROM CustomerOrders;
+GO
+
+-- 4. Products Purchased Together (Market Basket Analysis) using Lift
+WITH TotalTransactions AS (
+    SELECT COUNT(DISTINCT Transaction_ID) AS Total_Trans
+    FROM dw.FactSales
+),
+ProductFrequency AS (
+    SELECT 
+        LOWER(TRIM(REPLACE(REPLACE(p.Product_Name, '''', ''), '"', ''))) AS Product_Name,
+        COUNT(DISTINCT pb.Transaction_ID) AS Product_Trans_Count
+    FROM dw.FactProductBridge pb
+    JOIN dw.DimProduct p ON pb.Product_Key = p.Product_Key
+    GROUP BY LOWER(TRIM(REPLACE(REPLACE(p.Product_Name, '''', ''), '"', '')))
+),
+PairFrequency AS (
+    SELECT 
+        t1.Product_Name AS Product1,
+        t2.Product_Name AS Product2,
+        COUNT(DISTINCT t1.Transaction_ID) AS Pair_Trans_Count
+    FROM (
+        SELECT 
+            pb.Transaction_ID,
+            LOWER(TRIM(REPLACE(REPLACE(p.Product_Name, '''', ''), '"', ''))) AS Product_Name
+        FROM dw.FactProductBridge pb
+        JOIN dw.DimProduct p ON pb.Product_Key = p.Product_Key
+    ) t1
+    JOIN (
+        SELECT 
+            pb.Transaction_ID,
+            LOWER(TRIM(REPLACE(REPLACE(p.Product_Name, '''', ''), '"', ''))) AS Product_Name
+        FROM dw.FactProductBridge pb
+        JOIN dw.DimProduct p ON pb.Product_Key = p.Product_Key
+    ) t2 ON t1.Transaction_ID = t2.Transaction_ID
+    WHERE t1.Product_Name < t2.Product_Name
+    GROUP BY t1.Product_Name, t2.Product_Name
+)
+SELECT TOP 10
+    pf1.Product_Name AS Product1,
+    pf2.Product_Name AS Product2,
+    pf.Pair_Trans_Count,
+    ROUND(pf.Pair_Trans_Count * 100.0 / tt.Total_Trans, 2) AS Support_Pct,
+    ROUND(pf.Pair_Trans_Count * 100.0 / pf1.Product_Trans_Count, 2) AS Confidence_Pct,
+    ROUND(
+        (pf.Pair_Trans_Count * 1.0 / pf1.Product_Trans_Count) / 
+        (pf2.Product_Trans_Count * 1.0 / tt.Total_Trans), 
+        2
+    ) AS Lift
+FROM PairFrequency pf
+JOIN ProductFrequency pf1 ON pf.Product1 = pf1.Product_Name
+JOIN ProductFrequency pf2 ON pf.Product2 = pf2.Product_Name
+CROSS JOIN TotalTransactions tt
+ORDER BY Lift DESC;
+GO
+
+-- 5. Customer Segment Performance by Season
+SELECT 
+    d.Season,
+    c.Customer_Category,
+    COUNT(f.Transaction_ID) AS Transactions,
+    FORMAT(SUM(f.Total_Cost), 'N0') AS Revenue,
+    FORMAT(AVG(f.Total_Cost), 'N2') AS Avg_Order_Value
+FROM dw.FactSales f
+JOIN dw.DimCustomer c ON f.Customer_Key = c.Customer_Key
+JOIN dw.DimDate d ON f.Date_Key = d.Date_Key
+GROUP BY d.Season, c.Customer_Category
+ORDER BY d.Season, Revenue DESC;
+GO
+
+-- ========================================================================
+-- Phase 8: Power BI Ready Views
+-- ========================================================================
+
+-- Drop Old Views (If Exists)
+DROP VIEW IF EXISTS dw.vw_SalesOverview;
+DROP VIEW IF EXISTS dw.vw_CustomerAnalysis;
+DROP VIEW IF EXISTS dw.vw_ProductPerformance;
+DROP VIEW IF EXISTS dw.vw_PromotionAnalysis;
+DROP VIEW IF EXISTS dw.vw_StorePerformance;
+DROP VIEW IF EXISTS dw.vw_TimeAnalysis;
+GO
+
+-- View 1: Sales Overview
+CREATE VIEW dw.vw_SalesOverview AS
+SELECT 
+    f.Transaction_ID,
+    d.Full_Date,
+    c.Customer_Name,
+    s.City,
+    s.Store_Type,
+    f.Total_Items,
+    f.Total_Cost
+FROM dw.FactSales f
+JOIN dw.DimDate d ON f.Date_Key = d.Date_Key
+JOIN dw.DimCustomer c ON f.Customer_Key = c.Customer_Key
+JOIN dw.DimStore s ON f.Store_Key = s.Store_Key;
+GO
+
+-- View 2: Customer Analysis
+CREATE VIEW dw.vw_CustomerAnalysis AS
+SELECT 
+    c.Customer_Key,
+    c.Customer_Name,
+    c.Customer_Category,
+    COUNT(DISTINCT f.Transaction_ID) AS Total_Transactions,
+    SUM(f.Total_Cost) AS Lifetime_Value,
     AVG(f.Total_Cost) AS Average_Order_Value
-FROM DimCustomer c
-LEFT JOIN FactSales f ON c.Customer_Key = f.Customer_Key
+FROM dw.DimCustomer c
+LEFT JOIN dw.FactSales f ON c.Customer_Key = f.Customer_Key
 GROUP BY c.Customer_Key, c.Customer_Name, c.Customer_Category;
+GO
 
--- View: Product Performance
-CREATE OR REPLACE VIEW vw_ProductPerformance AS
+-- View 3: Product Performance
+CREATE VIEW dw.vw_ProductPerformance AS
 SELECT 
-    p.Product_Key, p.Product_Name,
-    COUNT(b.Transaction_ID) AS Total_Units_Sold,
-    COUNT(DISTINCT f.Customer_Key) AS Unique_Customers
-FROM DimProduct p
-LEFT JOIN FactProductBridge b ON p.Product_Key = b.Product_Key
-LEFT JOIN FactSales f ON b.Transaction_ID = f.Transaction_ID
+    p.Product_Key,
+    p.Product_Name,
+    COUNT(pb.Transaction_ID) AS Total_Times_Purchased,
+    COUNT(DISTINCT f.Customer_Key) AS Unique_Customers_Bought
+FROM dw.DimProduct p
+LEFT JOIN dw.FactProductBridge pb ON p.Product_Key = pb.Product_Key
+LEFT JOIN dw.FactSales f ON pb.Transaction_ID = f.Transaction_ID
 GROUP BY p.Product_Key, p.Product_Name;
+GO
 
--- View: Promotion Analysis
-CREATE OR REPLACE VIEW vw_PromotionAnalysis AS
+-- View 4: Promotion Analysis
+CREATE VIEW dw.vw_PromotionAnalysis AS
 SELECT 
-    p.Promotion_Key, p.Promotion, p.Discount_Applied,
+    p.Promotion_Key,
+    p.Promotion,
+    p.Discount_Applied,
     COUNT(f.Transaction_ID) AS Times_Used,
     SUM(f.Total_Cost) AS Generated_Revenue
-FROM DimPromotion p
-LEFT JOIN FactSales f ON p.Promotion_Key = f.Promotion_Key
+FROM dw.DimPromotion p
+LEFT JOIN dw.FactSales f ON p.Promotion_Key = f.Promotion_Key
 GROUP BY p.Promotion_Key, p.Promotion, p.Discount_Applied;
+GO
 
--- View: Store Performance
-CREATE OR REPLACE VIEW vw_StorePerformance AS
+-- View 5: Store Performance
+CREATE VIEW dw.vw_StorePerformance AS
 SELECT 
-    s.Store_Key, s.City, s.Store_Type,
-    COUNT(f.Transaction_ID) AS Total_Transactions,
+    s.Store_Key,
+    s.City,
+    s.Store_Type,
     SUM(f.Total_Cost) AS Total_Revenue,
+    COUNT(f.Transaction_ID) AS Transaction_Count,
     AVG(f.Total_Items) AS Avg_Basket_Size
-FROM DimStore s
-LEFT JOIN FactSales f ON s.Store_Key = f.Store_Key
+FROM dw.DimStore s
+LEFT JOIN dw.FactSales f ON s.Store_Key = f.Store_Key
 GROUP BY s.Store_Key, s.City, s.Store_Type;
+GO
 
--- View: Time Analysis
-CREATE OR REPLACE VIEW vw_TimeAnalysis AS
+-- View 6: Time Analysis
+CREATE VIEW dw.vw_TimeAnalysis AS
 SELECT 
-    d.Full_Date, d.Day, d.Month_Name, d.Quarter, d.Year, d.Season,
-    COUNT(f.Transaction_ID) AS Daily_Transactions,
-    SUM(f.Total_Cost) AS Daily_Revenue
-FROM DimDate d
-LEFT JOIN FactSales f ON d.Date_Key = f.Date_Key
-GROUP BY d.Full_Date, d.Day, d.Month_Name, d.Quarter, d.Year, d.Season;
+    d.Full_Date,
+    d.Year,
+    d.Quarter,
+    d.Month_Name,
+    d.Season,
+    SUM(f.Total_Cost) AS Daily_Revenue,
+    COUNT(f.Transaction_ID) AS Daily_Transactions
+FROM dw.DimDate d
+LEFT JOIN dw.FactSales f ON d.Date_Key = f.Date_Key
+GROUP BY d.Full_Date, d.Year, d.Quarter, d.Month_Name, d.Season;
+GO
+
+-- ========================================================================
+-- Testing Views (Read first 10 rows)
+-- ========================================================================
+SELECT TOP 10 * FROM dw.vw_SalesOverview;
+SELECT TOP 10 * FROM dw.vw_CustomerAnalysis;
+SELECT TOP 10 * FROM dw.vw_ProductPerformance;
+SELECT TOP 10 * FROM dw.vw_PromotionAnalysis;
+SELECT TOP 10 * FROM dw.vw_StorePerformance;
+SELECT TOP 10 * FROM dw.vw_TimeAnalysis;
+GO
+
+-- ========================================================================
+-- End of Project
+-- ========================================================================
